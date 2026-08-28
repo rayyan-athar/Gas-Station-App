@@ -1,0 +1,1359 @@
+import { useEffect, useState, useMemo } from "react";
+import { getProducts, addProduct, updateProduct, deleteProduct } from "../api";
+
+export default function Products() {
+  const [products, setProducts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("name");
+  const [sortOrder, setSortOrder] = useState("asc");
+  const [viewMode, setViewMode] = useState("grid");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [filterStock, setFilterStock] = useState("all");
+  const [form, setForm] = useState({ 
+    name: "", 
+    quantity: 0, 
+    price: 0, 
+    category: "", 
+    shelf_location: "",
+    description: "",
+    supplier: "",
+    reorder_level: 10,
+    cost_price: 0
+  });
+  const [editingId, setEditingId] = useState(null);
+  const [restockForm, setRestockForm] = useState({ id: null, quantity: 0 });
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function load() {
+    setProducts(await getProducts());
+  }
+
+  function handleChange(e) {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  }
+
+  function handleRestockChange(e) {
+    setRestockForm({ ...restockForm, [e.target.name]: e.target.value });
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (editingId) {
+      await updateProduct(editingId, form);
+      setEditingId(null);
+    } else {
+      await addProduct(form);
+    }
+    setForm({ 
+      name: "", 
+      quantity: 0, 
+      price: 0, 
+      category: "", 
+      shelf_location: "",
+      description: "",
+      supplier: "",
+      reorder_level: 10,
+      cost_price: 0
+    });
+    load();
+  }
+
+  function startEdit(product) {
+    setForm({
+      name: product.name,
+      quantity: product.quantity,
+      price: product.price,
+      category: product.category || "",
+      shelf_location: product.shelf_location || "",
+      description: product.description || "",
+      supplier: product.supplier || "",
+      reorder_level: product.reorder_level || 10,
+      cost_price: product.cost_price || 0
+    });
+    setEditingId(product.product_id);
+  }
+
+  // Alias for startEdit
+  const edit = startEdit;
+
+  function cancelEdit() {
+    setForm({ 
+      name: "", 
+      quantity: 0, 
+      price: 0, 
+      category: "", 
+      shelf_location: "",
+      description: "",
+      supplier: "",
+      reorder_level: 10,
+      cost_price: 0
+    });
+    setEditingId(null);
+  }
+
+  async function handleDelete(id) {
+    if (window.confirm("Are you sure you want to delete this product?")) {
+      await deleteProduct(id);
+      load();
+    }
+  }
+
+  // Alias for handleDelete
+  const remove = handleDelete;
+
+  async function restock(e) {
+    e.preventDefault();
+    if (restockForm.id && restockForm.quantity > 0) {
+      const product = products.find(p => p.product_id === parseInt(restockForm.id));
+      const newQty = product.quantity + parseInt(restockForm.quantity);
+      await updateProduct(restockForm.id, { quantity: newQty });
+      setRestockForm({ id: null, quantity: 0 });
+      load();
+    }
+  }
+
+  function handleSelectProduct(id) {
+    setSelectedProducts(prev => 
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    );
+  }
+
+  function handleSelectAll() {
+    if (selectedProducts.length === filteredProducts.length) {
+      setSelectedProducts([]);
+    } else {
+      setSelectedProducts(filteredProducts.map(p => p.product_id));
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (window.confirm(`Are you sure you want to delete ${selectedProducts.length} products?`)) {
+      for (const id of selectedProducts) {
+        await deleteProduct(id);
+      }
+      setSelectedProducts([]);
+      load();
+    }
+  }
+
+  function exportToCSV() {
+    const headers = ['ID', 'Name', 'Quantity', 'Price', 'Category', 'Location'];
+    const rows = filteredProducts.map(p => [
+      p.product_id, p.name, p.quantity, p.price, p.category || 'N/A', p.shelf_location || 'N/A'
+    ]);
+    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `products-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  }
+
+  // Advanced filtering and sorting
+  const filteredProducts = useMemo(() => {
+    let filtered = [...products];
+    
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(product =>
+        product.name?.toLowerCase().includes(query) ||
+        product.category?.toLowerCase().includes(query) ||
+        product.product_id?.toString().includes(query) ||
+        product.price?.toString().includes(query) ||
+        product.shelf_location?.toLowerCase().includes(query)
+      );
+    }
+
+    // Category filter
+    if (filterCategory !== 'all') {
+      filtered = filtered.filter(p => p.category === filterCategory);
+    }
+
+    // Stock filter
+    if (filterStock === 'low') {
+      filtered = filtered.filter(p => p.quantity <= 10);
+    } else if (filterStock === 'out') {
+      filtered = filtered.filter(p => p.quantity === 0);
+    } else if (filterStock === 'in') {
+      filtered = filtered.filter(p => p.quantity > 10);
+    }
+
+    // Sorting
+    filtered.sort((a, b) => {
+      let compareA = a[sortBy];
+      let compareB = b[sortBy];
+      
+      if (sortBy === 'name' || sortBy === 'category') {
+        compareA = compareA?.toLowerCase() || '';
+        compareB = compareB?.toLowerCase() || '';
+      }
+      
+      if (compareA < compareB) return sortOrder === 'asc' ? -1 : 1;
+      if (compareA > compareB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [products, searchQuery, filterCategory, filterStock, sortBy, sortOrder]);
+
+  // Statistics
+  const stats = useMemo(() => ({
+    total: products.length,
+    lowStock: products.filter(p => p.quantity > 0 && p.quantity <= 10).length,
+    outOfStock: products.filter(p => p.quantity === 0).length,
+    totalValue: products.reduce((sum, p) => sum + (p.price * p.quantity), 0),
+    categories: [...new Set(products.map(p => p.category).filter(Boolean))]
+  }), [products]);
+
+  const cardStyle = {
+    background: 'rgba(255, 255, 255, 0.98)',
+    backdropFilter: 'blur(12px)',
+    borderRadius: '20px',
+    padding: '2.5rem',
+    boxShadow: '0 12px 36px rgba(0, 0, 0, 0.12)',
+    marginBottom: '2.5rem'
+  };
+  const headerStyle = {
+    fontWeight: '900',
+    color: 'white',
+    marginBottom: '2.5rem',
+    textShadow: '0 2px 8px rgba(0, 0, 0, 0.25)'
+  };
+
+  const gridStyle = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gap: '2rem',
+    alignItems: 'center',
+  };
+
+  const productCardStyle = {
+    background: 'white',
+    borderRadius: '18px',
+    padding: '2rem',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.10)',
+    transition: 'all 0.3s cubic-bezier(.25,.8,.25,1)',
+    border: '2px solid transparent',
+    cursor: 'pointer',
+    minHeight: '260px',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+  };
+  return (
+    <div style={{ 
+      minHeight: '100vh', 
+      background: '#f8fafc',
+      padding: '2rem',
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    }}>
+      <div style={{
+        maxWidth: '1600px',
+        margin: '0 auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1.5rem',
+      }}>
+        
+        {/* TOP BAR - Completely Redesigned */}
+        <div style={{
+          background: 'white',
+          borderRadius: '8px',
+          padding: '1.5rem 2rem',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          border: '1px solid #e5e7eb'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+            <div>
+              <h1 style={{ 
+                fontSize: '1.5rem', 
+                fontWeight: '600', 
+                color: '#111827',
+                margin: 0,
+                letterSpacing: '-0.025em'
+              }}>
+                Inventory
+              </h1>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.875rem', color: '#6b7280', fontWeight: '400' }}>
+                {products.length} products • {stats.categories.length} categories
+              </p>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              style={{
+                padding: '0.5rem 1rem',
+                background: showFilters ? '#3b82f6' : 'white',
+                color: showFilters ? 'white' : '#374151',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              Filters
+            </button>
+            
+            <button
+              onClick={exportToCSV}
+              style={{
+                padding: '0.5rem 1rem',
+                background: 'white',
+                color: '#374151',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}
+            >
+              Export
+            </button>
+            
+            <button
+              onClick={() => {
+                setForm({ name: "", quantity: 0, price: 0, category: "", shelf_location: "", description: "", supplier: "", reorder_level: 10, cost_price: 0 });
+                setEditingId(null);
+              }}
+              style={{
+                padding: '0.5rem 1rem',
+                background: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}
+            >
+              New Product
+            </button>
+          </div>
+        </div>
+
+        {/* STATISTICS DASHBOARD */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '1rem'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '8px',
+            padding: '1rem',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Total</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#3b82f6' }}>{stats.total}</div>
+          </div>
+
+          <div style={{
+            background: 'white',
+            borderRadius: '8px',
+            padding: '1rem',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Low Stock</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#f59e0b' }}>{stats.lowStock}</div>
+          </div>
+
+          <div style={{
+            background: 'white',
+            borderRadius: '8px',
+            padding: '1rem',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Out of Stock</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#ef4444' }}>{stats.outOfStock}</div>
+          </div>
+
+          <div style={{
+            background: 'white',
+            borderRadius: '8px',
+            padding: '1rem',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Total Value</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#10b981' }}>${stats.totalValue.toFixed(0)}</div>
+          </div>
+        </div>
+
+        {/* FILTERS BAR - Collapsible */}
+        {showFilters && (
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.95)',
+            borderRadius: '20px',
+            padding: '1.5rem 2rem',
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.1)',
+            backdropFilter: 'blur(10px)',
+            animation: 'slideDown 0.3s ease'
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#475569', marginBottom: '0.5rem' }}>
+                  SEARCH
+                </label>
+                <input
+                  type="text"
+                  placeholder="Search by name, ID, category..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.9rem 1.2rem',
+                    borderRadius: '12px',
+                    border: '2px solid #e2e8f0',
+                    fontSize: '0.95rem',
+                    fontWeight: '500',
+                    transition: 'all 0.3s ease'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#475569', marginBottom: '0.5rem' }}>
+                  📂 CATEGORY
+                </label>
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.9rem 1.2rem',
+                    borderRadius: '12px',
+                    border: '2px solid #e2e8f0',
+                    fontSize: '0.95rem',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">All Categories</option>
+                  {stats.categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#475569', marginBottom: '0.5rem' }}>
+                  STOCK STATUS
+                </label>
+                <select
+                  value={filterStock}
+                  onChange={(e) => setFilterStock(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.9rem 1.2rem',
+                    borderRadius: '12px',
+                    border: '2px solid #e2e8f0',
+                    fontSize: '0.95rem',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">All Stock Levels</option>
+                  <option value="in">In Stock ({">"} 10)</option>
+                  <option value="low">Low Stock (≤ 10)</option>
+                  <option value="out">Out of Stock</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#475569', marginBottom: '0.5rem' }}>
+                  SORT BY
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: '0.9rem 1.2rem',
+                      borderRadius: '12px',
+                      border: '2px solid #e2e8f0',
+                      fontSize: '0.95rem',
+                      fontWeight: '500',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="name">Name</option>
+                    <option value="quantity">Quantity</option>
+                    <option value="price">Price</option>
+                    <option value="category">Category</option>
+                  </select>
+                  <button
+                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                    style={{
+                      padding: '0.9rem',
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                      fontWeight: '700',
+                      fontSize: '1rem'
+                    }}
+                  >
+                    {sortOrder === 'asc' ? '↑' : '↓'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MAIN CONTENT GRID - Completely New Layout */}
+        <div style={{ display: 'grid', gridTemplateColumns: editingId || form.name ? '400px 1fr' : '1fr', gap: '1.5rem', alignItems: 'start' }}>
+          
+          {/* SIDE PANEL - Product Form (Only shows when adding/editing) */}
+          {(editingId || form.name) && (
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.98)',
+              borderRadius: '24px',
+              padding: '2rem',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.15)',
+              backdropFilter: 'blur(20px)',
+              position: 'sticky',
+              top: '2rem',
+              maxHeight: 'calc(100vh - 4rem)',
+              overflowY: 'auto'
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                marginBottom: '1.5rem',
+                paddingBottom: '1rem',
+                borderBottom: '3px solid #f1f5f9'
+              }}>
+                <h2 style={{ 
+                  fontSize: '1.6rem', 
+                  fontWeight: '800', 
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  margin: 0
+                }}>
+                  {editingId ? 'Edit Product' : 'New Product'}
+                </h2>
+                <button
+                  onClick={cancelEdit}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '1.5rem',
+                    cursor: 'pointer',
+                    color: '#94a3b8',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.color = '#ef4444'}
+                  onMouseLeave={(e) => e.target.style.color = '#94a3b8'}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={submit}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                  
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Product Name *
+                    </label>
+                    <input 
+                      name="name" 
+                      placeholder="e.g. Premium Motor Oil" 
+                      value={form.name} 
+                      onChange={handleChange} 
+                      required 
+                      style={{ 
+                        width: '100%',
+                        padding: '1rem 1.2rem', 
+                        fontSize: '1rem', 
+                        borderRadius: '14px', 
+                        border: '2px solid #e2e8f0',
+                        fontWeight: '600',
+                        transition: 'all 0.3s'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Quantity *
+                      </label>
+                      <input 
+                        name="quantity" 
+                        type="number" 
+                        min="0" 
+                        placeholder="0" 
+                        value={form.quantity} 
+                        onChange={handleChange} 
+                        required 
+                        style={{ 
+                          width: '100%',
+                          padding: '1rem 1.2rem', 
+                          fontSize: '1rem', 
+                          borderRadius: '14px', 
+                          border: '2px solid #e2e8f0',
+                          fontWeight: '600'
+                        }}
+                        onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                        onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Price ($) *
+                      </label>
+                      <input 
+                        name="price" 
+                        type="number" 
+                        step="0.01" 
+                        min="0" 
+                        placeholder="0.00" 
+                        value={form.price} 
+                        onChange={handleChange} 
+                        required 
+                        style={{ 
+                          width: '100%',
+                          padding: '1rem 1.2rem', 
+                          fontSize: '1rem', 
+                          borderRadius: '14px', 
+                          border: '2px solid #e2e8f0',
+                          fontWeight: '600'
+                        }}
+                        onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                        onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Category
+                    </label>
+                    <input 
+                      name="category" 
+                      placeholder="e.g. Automotive, Snacks..." 
+                      value={form.category} 
+                      onChange={handleChange} 
+                      style={{ 
+                        width: '100%',
+                        padding: '1rem 1.2rem', 
+                        fontSize: '1rem', 
+                        borderRadius: '14px', 
+                        border: '2px solid #e2e8f0',
+                        fontWeight: '600'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Shelf Location
+                    </label>
+                    <input 
+                      name="shelf_location" 
+                      placeholder="e.g. Aisle 3, Shelf B" 
+                      value={form.shelf_location} 
+                      onChange={handleChange} 
+                      style={{ 
+                        width: '100%',
+                        padding: '1rem 1.2rem', 
+                        fontSize: '1rem', 
+                        borderRadius: '14px', 
+                        border: '2px solid #e2e8f0',
+                        fontWeight: '600'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Description
+                    </label>
+                    <textarea 
+                      name="description" 
+                      placeholder="Product description..." 
+                      value={form.description} 
+                      onChange={handleChange} 
+                      rows="3"
+                      style={{ 
+                        width: '100%',
+                        padding: '1rem 1.2rem', 
+                        fontSize: '1rem', 
+                        borderRadius: '14px', 
+                        border: '2px solid #e2e8f0',
+                        fontWeight: '500',
+                        fontFamily: 'inherit',
+                        resize: 'vertical'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                    <button 
+                      type="submit" 
+                      style={{ 
+                        flex: 1,
+                        fontSize: '1.05rem', 
+                        padding: '1.1rem 1.5rem', 
+                        borderRadius: '14px', 
+                        fontWeight: '800',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: 'white',
+                        border: 'none',
+                        cursor: 'pointer',
+                        boxShadow: '0 8px 20px rgba(102, 126, 234, 0.4)',
+                        transition: 'all 0.3s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.transform = 'translateY(-2px)';
+                        e.target.style.boxShadow = '0 12px 28px rgba(102, 126, 234, 0.5)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.transform = 'none';
+                        e.target.style.boxShadow = '0 8px 20px rgba(102, 126, 234, 0.4)';
+                      }}
+                    >
+                      {editingId ? 'Update Product' : 'Create Product'}
+                    </button>
+                    {editingId && (
+                      <button 
+                        type="button" 
+                        onClick={cancelEdit} 
+                        style={{ 
+                          padding: '1.1rem 1.5rem', 
+                          background: '#f1f5f9', 
+                          color: '#64748b', 
+                          border: 'none', 
+                          borderRadius: '14px', 
+                          fontWeight: '800', 
+                          cursor: 'pointer',
+                          fontSize: '1.05rem'
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </form>
+
+              {/* Quick Restock Section */}
+              <div style={{ 
+                marginTop: '2rem', 
+                paddingTop: '2rem', 
+                borderTop: '3px solid #f1f5f9' 
+              }}>
+                <h3 style={{ 
+                  fontSize: '1.2rem', 
+                  fontWeight: '800', 
+                  color: '#475569', 
+                  marginBottom: '1rem' 
+                }}>
+                  Quick Restock
+                </h3>
+                <form onSubmit={restock}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <select 
+                      name="id" 
+                      value={restockForm.id || ""} 
+                      onChange={handleRestockChange} 
+                      required 
+                      style={{ 
+                        padding: '1rem 1.2rem', 
+                        borderRadius: '14px', 
+                        border: '2px solid #e2e8f0',
+                        fontSize: '1rem',
+                        fontWeight: '600',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">Select Product...</option>
+                      {products.map(p => (
+                        <option key={p.product_id} value={p.product_id}>
+                          {p.name} (Stock: {p.quantity})
+                        </option>
+                      ))}
+                    </select>
+                    <input 
+                      name="quantity" 
+                      type="number" 
+                      min="1" 
+                      placeholder="Quantity to add..." 
+                      value={restockForm.quantity} 
+                      onChange={handleRestockChange} 
+                      required 
+                      style={{ 
+                        padding: '1rem 1.2rem', 
+                        borderRadius: '14px', 
+                        border: '2px solid #e2e8f0',
+                        fontSize: '1rem',
+                        fontWeight: '600'
+                      }} 
+                    />
+                    <button 
+                      type="submit" 
+                      style={{ 
+                        padding: '1.1rem', 
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
+                        color: 'white', 
+                        border: 'none', 
+                        borderRadius: '14px', 
+                        fontWeight: '800', 
+                        cursor: 'pointer',
+                        fontSize: '1.05rem',
+                        boxShadow: '0 8px 20px rgba(16, 185, 129, 0.3)'
+                      }}
+                    >
+                      Add Stock
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+          {/* MAIN PRODUCT DISPLAY - Completely New Design */}
+          <div>
+            {/* View Mode Toggle & Bulk Actions Bar */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              marginBottom: '1.5rem',
+              background: 'rgba(255, 255, 255, 0.7)',
+              backdropFilter: 'blur(10px)',
+              padding: '1rem 1.5rem',
+              borderRadius: '16px',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)'
+            }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: '700', color: '#64748b', marginRight: '0.5rem' }}>VIEW:</span>
+                <button
+                  onClick={() => setViewMode('grid')}
+                  style={{
+                    padding: '0.6rem 1.2rem',
+                    background: viewMode === 'grid' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f1f5f9',
+                    color: viewMode === 'grid' ? 'white' : '#64748b',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    transition: 'all 0.3s'
+                  }}
+                >
+                  Grid
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  style={{
+                    padding: '0.6rem 1.2rem',
+                    background: viewMode === 'list' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f1f5f9',
+                    color: viewMode === 'list' ? 'white' : '#64748b',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    transition: 'all 0.3s'
+                  }}
+                >
+                  List
+                </button>
+              </div>
+
+              {selectedProducts.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.9rem', fontWeight: '700', color: '#667eea' }}>
+                    {selectedProducts.length} selected
+                  </span>
+                  <button
+                    onClick={handleBulkDelete}
+                    style={{
+                      padding: '0.6rem 1.2rem',
+                      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                    }}
+                  >
+                     Delete Selected
+                  </button>
+                  <button
+                    onClick={() => setSelectedProducts([])}
+                    style={{
+                      padding: '0.6rem 1.2rem',
+                      background: '#f1f5f9',
+                      color: '#64748b',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Products Display */}
+            {filteredProducts.length === 0 ? (
+              <div style={{ 
+                background: 'rgba(255, 255, 255, 0.8)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '24px',
+                textAlign: 'center', 
+                color: '#94a3b8', 
+                fontSize: '1.1rem', 
+                padding: '5rem 2rem',
+                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.08)'
+              }}>
+                <div style={{ fontSize: '5rem', marginBottom: '1.5rem', opacity: 0.5 }}></div>
+                <p style={{ fontSize: '1.4rem', fontWeight: '700', color: '#64748b', marginBottom: '0.5rem' }}>No products found</p>
+                <p style={{ fontSize: '1rem', color: '#94a3b8' }}>Try adjusting your filters or add a new product</p>
+              </div>
+            ) : viewMode === 'grid' ? (
+              // GRID VIEW - Completely New Card Design
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', 
+                gap: '1.5rem' 
+              }}>
+                {filteredProducts.map((p) => {
+                  const isSelected = selectedProducts.includes(p.product_id);
+                  const isLowStock = p.quantity < 10;
+                  const isOutOfStock = p.quantity === 0;
+                  
+                  return (
+                    <div 
+                      key={p.product_id} 
+                      style={{ 
+                        background: isSelected 
+                          ? 'linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)'
+                          : 'rgba(255, 255, 255, 0.9)',
+                        backdropFilter: 'blur(10px)',
+                        borderRadius: '20px',
+                        padding: '1.8rem',
+                        boxShadow: isSelected 
+                          ? '0 12px 32px rgba(102, 126, 234, 0.3)' 
+                          : '0 8px 24px rgba(0, 0, 0, 0.08)',
+                        border: isSelected ? '3px solid #667eea' : '3px solid transparent',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.transform = 'translateY(-4px)';
+                          e.currentTarget.style.boxShadow = '0 16px 40px rgba(0, 0, 0, 0.12)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.transform = 'none';
+                          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.08)';
+                        }
+                      }}
+                    >
+                      {/* Selection Checkbox */}
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleSelectProduct(p.product_id)}
+                        style={{
+                          position: 'absolute',
+                          top: '1.2rem',
+                          left: '1.2rem',
+                          width: '24px',
+                          height: '24px',
+                          cursor: 'pointer',
+                          accentColor: '#667eea'
+                        }}
+                      />
+
+                      {/* Stock Status Badge */}
+                      {(isLowStock || isOutOfStock) && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '1.2rem',
+                          right: '1.2rem',
+                          background: isOutOfStock 
+                            ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                            : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                          color: 'white',
+                          padding: '0.4rem 0.9rem',
+                          borderRadius: '20px',
+                          fontSize: '0.75rem',
+                          fontWeight: '800',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
+                        }}>
+                          {isOutOfStock ? 'OUT' : 'LOW'}
+                        </div>
+                      )}
+
+                      {/* Product Icon/Category */}
+                      <div style={{
+                        width: '70px',
+                        height: '70px',
+                        borderRadius: '18px',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '2.5rem',
+                        marginBottom: '1.5rem',
+                        marginTop: '1rem',
+                        boxShadow: '0 8px 20px rgba(102, 126, 234, 0.3)'
+                      }}>
+                        
+                      </div>
+
+                      {/* Product Name */}
+                      <h3 style={{ 
+                        fontSize: '1.35rem', 
+                        fontWeight: '800', 
+                        color: '#1e293b', 
+                        marginBottom: '1rem',
+                        lineHeight: '1.3'
+                      }}>
+                        {p.name}
+                      </h3>
+
+                      {/* Product Details Grid */}
+                      <div style={{ 
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '0.8rem',
+                        marginBottom: '1.5rem',
+                        padding: '1rem',
+                        background: 'rgba(0, 0, 0, 0.02)',
+                        borderRadius: '12px'
+                      }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.3rem' }}>
+                            Stock
+                          </div>
+                          <div style={{ fontSize: '1.4rem', fontWeight: '800', color: isOutOfStock ? '#ef4444' : isLowStock ? '#f59e0b' : '#10b981' }}>
+                            {p.quantity}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.3rem' }}>
+                            Price
+                          </div>
+                          <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#667eea' }}>
+                            ${Number(p.price).toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Category & Location */}
+                      {(p.category || p.shelf_location) && (
+                        <div style={{ 
+                          display: 'flex', 
+                          gap: '0.6rem', 
+                          flexWrap: 'wrap',
+                          marginBottom: '1.2rem'
+                        }}>
+                          {p.category && (
+                            <span style={{
+                              background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                              color: 'white',
+                              padding: '0.4rem 0.9rem',
+                              borderRadius: '10px',
+                              fontSize: '0.8rem',
+                              fontWeight: '700'
+                            }}>
+                              {p.category}
+                            </span>
+                          )}
+                          {p.shelf_location && (
+                            <span style={{
+                              background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                              color: 'white',
+                              padding: '0.4rem 0.9rem',
+                              borderRadius: '10px',
+                              fontSize: '0.8rem',
+                              fontWeight: '700'
+                            }}>
+                              {p.shelf_location}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', gap: '0.8rem' }}>
+                        <button 
+                          onClick={() => startEdit(p)} 
+                          style={{ 
+                            flex: 1,
+                            fontSize: '0.95rem', 
+                            padding: '0.9rem', 
+                            borderRadius: '12px', 
+                            fontWeight: '800',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                            transition: 'all 0.3s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.transform = 'translateY(-2px)';
+                            e.target.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.transform = 'none';
+                            e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)';
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(p.product_id)} 
+                          style={{ 
+                            padding: '0.9rem 1rem', 
+                            borderRadius: '12px', 
+                            fontWeight: '800',
+                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.95rem',
+                            boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
+                            transition: 'all 0.3s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.transform = 'translateY(-2px)';
+                            e.target.style.boxShadow = '0 6px 16px rgba(239, 68, 68, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.transform = 'none';
+                            e.target.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)';
+                          }}
+                        >
+                          
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              // LIST VIEW - Completely New Row Design
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {filteredProducts.map((p) => {
+                  const isSelected = selectedProducts.includes(p.product_id);
+                  const isLowStock = p.quantity < 10;
+                  const isOutOfStock = p.quantity === 0;
+
+                  return (
+                    <div 
+                      key={p.product_id} 
+                      style={{ 
+                        background: isSelected 
+                          ? 'linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)'
+                          : 'rgba(255, 255, 255, 0.9)',
+                        backdropFilter: 'blur(10px)',
+                        borderRadius: '16px',
+                        padding: '1.5rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '1.5rem',
+                        boxShadow: isSelected 
+                          ? '0 8px 24px rgba(102, 126, 234, 0.3)' 
+                          : '0 4px 16px rgba(0, 0, 0, 0.06)',
+                        border: isSelected ? '3px solid #667eea' : '3px solid transparent',
+                        borderLeft: `6px solid ${isOutOfStock ? '#ef4444' : isLowStock ? '#f59e0b' : '#10b981'}`,
+                        transition: 'all 0.3s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.1)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.06)';
+                        }
+                      }}
+                    >
+                      {/* Checkbox */}
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleSelectProduct(p.product_id)}
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          cursor: 'pointer',
+                          accentColor: '#667eea'
+                        }}
+                      />
+
+                      {/* Icon */}
+                      <div style={{
+                        width: '60px',
+                        height: '60px',
+                        borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '2rem',
+                        flexShrink: 0,
+                        boxShadow: '0 6px 16px rgba(102, 126, 234, 0.3)'
+                      }}>
+                        
+                      </div>
+
+                      {/* Product Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <h3 style={{ 
+                          fontSize: '1.25rem', 
+                          fontWeight: '800', 
+                          color: '#1e293b', 
+                          marginBottom: '0.5rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.8rem',
+                          flexWrap: 'wrap'
+                        }}>
+                          {p.name}
+                          {(isLowStock || isOutOfStock) && (
+                            <span style={{
+                              background: isOutOfStock 
+                                ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                                : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                              color: 'white',
+                              padding: '0.3rem 0.8rem',
+                              borderRadius: '12px',
+                              fontSize: '0.7rem',
+                              fontWeight: '800',
+                              textTransform: 'uppercase'
+                            }}>
+                              {isOutOfStock ? 'OUT' : 'LOW'}
+                            </span>
+                          )}
+                        </h3>
+                        <div style={{ 
+                          display: 'flex', 
+                          gap: '1.5rem', 
+                          fontSize: '0.95rem', 
+                          color: '#64748b',
+                          flexWrap: 'wrap'
+                        }}>
+                          <span style={{ fontWeight: '700' }}>
+                            <span style={{ color: '#94a3b8' }}>Qty:</span>{' '}
+                            <span style={{ color: isOutOfStock ? '#ef4444' : isLowStock ? '#f59e0b' : '#10b981', fontSize: '1.1rem' }}>
+                              {p.quantity}
+                            </span>
+                          </span>
+                          <span style={{ fontWeight: '700' }}>
+                            <span style={{ color: '#94a3b8' }}>Price:</span>{' '}
+                            <span style={{ color: '#667eea', fontSize: '1.1rem' }}>
+                              ${Number(p.price).toFixed(2)}
+                            </span>
+                          </span>
+                          {p.category && (
+                            <span style={{ fontWeight: '700' }}>
+                              <span style={{ color: '#94a3b8' }}>Category:</span> {p.category}
+                            </span>
+                          )}
+                          {p.shelf_location && (
+                            <span style={{ fontWeight: '700' }}>
+                              <span style={{ color: '#94a3b8' }}>Location:</span> {p.shelf_location}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', gap: '0.8rem', flexShrink: 0 }}>
+                        <button 
+                          onClick={() => startEdit(p)} 
+                          style={{ 
+                            fontSize: '0.95rem', 
+                            padding: '0.8rem 1.3rem', 
+                            borderRadius: '12px', 
+                            fontWeight: '800',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)'
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(p.product_id)} 
+                          style={{ 
+                            fontSize: '0.95rem', 
+                            padding: '0.8rem 1.1rem', 
+                            borderRadius: '12px', 
+                            fontWeight: '800',
+                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                          }}
+                        >
+                          
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

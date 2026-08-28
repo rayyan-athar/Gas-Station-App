@@ -1,0 +1,111 @@
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+
+  /* Modern color palette */
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --primary-light: #818cf8;
+  --secondary: #8b5cf6;
+  --accent: #ec4899;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --dark: #1e293b;
+  --dark-light: #334155;
+  --light: #f8fafc;
+  --light-gray: #e2e8f0;
+  --border: #cbd5e1;
+  --text: #1e293b;
+  --text-light: #64748b;
+  --shadow: rgba(0, 0, 0, 0.1);
+  --shadow-lg: rgba(0, 0, 0, 0.15);
+
+  color: var(--text);
+  background: #f9fafb;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  font-weight: 500;
+  color: var(--primary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+a:hover {
+  color: var(--primary-dark);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  width: 100%;
+  background: #f9fafb;
+}
+
+h1 {
+  font-size: 1.25rem;
+  line-height: 1.4;
+  font-weight: 600;
+  margin: 0;
+  color: #111827;
+}
+
+h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: #111827;
+}
+
+h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+  color: #111827;
+}
+
+input, select, textarea {
+  padding: 0.75em 1em;
+  font-size: 1em;
+  font-family: inherit;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--text);
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+input:hover, select:hover, textarea:hover {
+  border-color: var(--primary-light);
+}
+
+button {
+  border-radius: 6px;
+  border: none;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  background: #3b82f6;
+  color: white;
+  cursor: pointer;
+}
+
+/* removed heavy animations */
