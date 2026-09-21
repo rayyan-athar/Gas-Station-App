@@ -1,7 +1,7 @@
 # Gas Station Management Application
 
 A full-stack web application for managing gas station operations including inventory, employees, and fuel stations.
-
+ 
 ## Features
 
 - **Products Management**: Add, update, delete, and restock store products
